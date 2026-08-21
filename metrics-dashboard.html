@@ -1,0 +1,647 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Dashboard de Métricas — SauceDemo E2E</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+  rel="stylesheet"
+/>
+<!-- Chart.js pineado a una versión fija (no @latest) para que el dashboard no se rompa
+     silenciosamente el día que salga una v5 con cambios incompatibles. -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0e14;
+    --surface: #12161f;
+    --surface-2: #171c27;
+    --border: #232938;
+    --text: #e6e9f0;
+    --text-muted: #8b93a6;
+    --text-faint: #5b6478;
+    --accent: #3fd0c9;
+    --accent-dim: #1f7d78;
+    --pass: #34d399;
+    --fail: #f87171;
+    --flaky: #fbbf24;
+    --skip: #8b93a6;
+    --cat-timeout: #fbbf24;
+    --cat-assertion: #f87171;
+    --cat-locator: #fb923c;
+    --cat-network: #c084fc;
+    --cat-other: #8b93a6;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -16px rgba(0, 0, 0, 0.6);
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Archivo', ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.5;
+  }
+  .mono {
+    font-family: 'IBM Plex Mono', ui-monospace, 'Cascadia Code', monospace;
+    font-variant-numeric: tabular-nums;
+  }
+  a {
+    color: var(--accent);
+  }
+
+  .wrap {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 28px 24px 80px;
+  }
+
+  #sample-banner {
+    display: none;
+    background: linear-gradient(90deg, #3a2c10, #12161f);
+    border: 1px solid #6b5420;
+    color: #e7b75b;
+    font-size: 13.5px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+  }
+  #sample-banner b {
+    color: #fbbf24;
+  }
+
+  header.top {
+    margin-bottom: 28px;
+  }
+  header.top .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 6px;
+  }
+  header.top h1 {
+    font-size: 26px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  header.top p {
+    color: var(--text-muted);
+    font-size: 13.5px;
+    margin: 0;
+  }
+
+  /* ---------- KPI row ---------- */
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 14px;
+    margin: 24px 0 28px;
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    box-shadow: var(--shadow);
+  }
+  .kpi .label {
+    font-size: 11.5px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    margin-bottom: 8px;
+  }
+  .kpi .value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 26px;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .kpi .value.pass { color: var(--pass); }
+  .kpi .value.flaky { color: var(--flaky); }
+  .kpi .sub {
+    margin-top: 6px;
+    font-size: 11.5px;
+    color: var(--text-faint);
+  }
+
+  @media (max-width: 980px) {
+    .kpis { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ---------- Cards / charts grid ---------- */
+  .charts-grid {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 16px;
+    margin-bottom: 20px;
+  }
+  .charts-grid .full { grid-column: 1 / -1; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    box-shadow: var(--shadow);
+  }
+  .card h2 {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 0 0 3px;
+  }
+  .card p.hint {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    margin: 0 0 14px;
+  }
+  .chart-box { position: relative; height: 260px; }
+  .chart-box.tall { height: 320px; }
+
+  .empty-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--pass);
+    font-size: 14px;
+    text-align: center;
+    padding: 20px;
+  }
+
+  @media (max-width: 980px) {
+    .charts-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ---------- Flaky section ---------- */
+  #flaky-section {
+    border-color: #6b3a20;
+    background: linear-gradient(180deg, rgba(251, 191, 36, 0.06), var(--surface));
+    margin-bottom: 20px;
+  }
+  #flaky-section h2 { color: var(--flaky); }
+  .flaky-list { display: flex; flex-direction: column; gap: 8px; }
+  .flaky-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+  }
+  .flaky-item .title { color: var(--text); }
+  .flaky-item .why { color: var(--text-faint); font-size: 12px; margin-top: 2px; }
+  .pill {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+  .pill.flaky { background: rgba(251, 191, 36, 0.15); color: var(--flaky); }
+  .pill.unstable { background: rgba(248, 113, 113, 0.15); color: var(--fail); }
+
+  /* ---------- Table ---------- */
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  thead th {
+    text-align: left;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-faint);
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  thead th:hover { color: var(--accent); }
+  thead th .arrow { opacity: 0.5; margin-left: 3px; }
+  tbody td {
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tbody tr:hover { background: var(--surface-2); }
+  td.title { max-width: 420px; }
+  td.title .file { display: block; color: var(--text-faint); font-size: 11px; margin-top: 2px; }
+  .status-badge {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 5px;
+    white-space: nowrap;
+  }
+  .status-badge.passed { background: rgba(52, 211, 153, 0.15); color: var(--pass); }
+  .status-badge.failed { background: rgba(248, 113, 113, 0.15); color: var(--fail); }
+  .status-badge.skipped { background: rgba(139, 147, 166, 0.15); color: var(--skip); }
+  .status-badge.flaky-tag {
+    margin-left: 6px;
+    background: rgba(251, 191, 36, 0.15);
+    color: var(--flaky);
+  }
+  .stability-bar {
+    display: inline-block;
+    width: 54px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--surface-2);
+    overflow: hidden;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  .stability-bar > span { display: block; height: 100%; }
+
+  footer.page {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="sample-banner">
+    ⚠ Mostrando <b>datos de ejemplo</b> — no se pudo leer <code>metrics.json</code> /
+    <code>metrics-history.json</code>. Corré <code>npm test &amp;&amp; npm run metrics</code> y
+    recargá. Si estás abriendo este archivo con doble clic (<code>file://</code>), Chrome bloquea
+    el <code>fetch()</code> a archivos locales — serví la carpeta con
+    <code>npm run metrics:serve</code> o abrí con Firefox.
+  </div>
+
+  <header class="top">
+    <p class="eyebrow">SauceDemo E2E · Playwright + TypeScript</p>
+    <h1>Dashboard de métricas de la suite</h1>
+    <p id="generated-at">Generado —</p>
+  </header>
+
+  <section class="kpis" id="kpi-row"></section>
+
+  <section class="charts-grid">
+    <div class="card">
+      <h2>Tendencia por corrida</h2>
+      <p class="hint">Pass rate y flaky rate a lo largo de las últimas corridas — la pregunta que un solo reporte de Playwright no puede responder: ¿vamos mejor o peor con el tiempo?</p>
+      <div class="chart-box"><canvas id="trendChart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Fallos por causa raíz</h2>
+      <p class="hint">Dónde está el problema, no solo que lo hay.</p>
+      <div class="chart-box" id="categoryBox"><canvas id="categoryChart"></canvas></div>
+    </div>
+    <div class="card full">
+      <h2>Duración por test</h2>
+      <p class="hint">Los 5 más lentos (destacados) son los primeros candidatos a optimizar si la suite empieza a pesar en CI.</p>
+      <div class="chart-box tall"><canvas id="durationChart"></canvas></div>
+    </div>
+  </section>
+
+  <section class="card" id="flaky-section">
+    <h2>⚠ Tests flaky — deuda técnica prioritaria</h2>
+    <p class="hint">Un test flaky (pasó, pero con al menos un intento fallido en el camino) o crónicamente inestable en el histórico no es "un test que a veces falla" — es tiempo de CI desperdiciado y confianza perdida en la suite cada vez que alguien re-corre "a ver si esta vez pasa".</p>
+    <div class="flaky-list" id="flaky-list"></div>
+  </section>
+
+  <section class="card">
+    <h2>Detalle por test</h2>
+    <p class="hint">Estabilidad histórica = % de corridas pasadas limpio (sin retry), no solo "si pasó hoy". Click en un encabezado para ordenar.</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="title">Test <span class="arrow"></span></th>
+            <th data-sort="status">Estado <span class="arrow"></span></th>
+            <th data-sort="durationMs">Duración <span class="arrow"></span></th>
+            <th data-sort="retries">Retries <span class="arrow"></span></th>
+            <th data-sort="stabilityPercent">Estabilidad <span class="arrow"></span></th>
+            <th data-sort="errorCategory">Categoría de fallo <span class="arrow"></span></th>
+          </tr>
+        </thead>
+        <tbody id="tests-tbody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="page">
+    <span>Generado por scripts/generate-metrics.mjs</span>
+    <span id="footer-count"></span>
+  </footer>
+</div>
+
+<script>
+// =================================================================================================
+// Datos de ejemplo — se usan SOLO si no se pudieron leer metrics.json / metrics-history.json (repo
+// recién clonado sin corridas todavía, o abierto por file:// donde fetch() a archivos locales está
+// bloqueado). Están escritos a mano para ilustrar TODAS las secciones del dashboard con datos
+// realistas — incluye fallos categorizados y un test crónicamente inestable, algo que la suite real
+// de este repo hoy no tiene (está 100% verde), para que el dashboard se pueda evaluar completo sin
+// tener que forzar fallos reales primero.
+// =================================================================================================
+const SAMPLE_METRICS = {
+  generatedAt: new Date().toISOString(),
+  summary: {
+    testCount: 14, passed: 11, failed: 2, flaky: 1, skipped: 0,
+    passRate: 11 / 14, flakyRate: 1 / 14,
+    totalDurationMs: 96000, avgDurationMs: 6857, p95DurationMs: 15200, totalRetries: 3,
+  },
+  top5Slowest: [
+    { title: 'PDF-01 - el Order Receipt contiene los mismos datos que se vieron en el checkout', file: 'order-pdf-integrity.spec.ts', project: 'chromium', durationMs: 15200 },
+    { title: 'ROBUSTNESS-01 - el happy path tolera la latencia de performance_glitch_user', file: 'performance-glitch-robustness.spec.ts', project: 'chromium', durationMs: 13400 },
+    { title: 'DATA-01 - "Sauce Labs Fleece Jacket"', file: 'product-data-propagation.spec.ts', project: 'chromium', durationMs: 9100 },
+    { title: 'TC-01 - a standard user can complete a purchase end to end', file: 'happy-path-purchase.spec.ts', project: 'chromium', durationMs: 7600 },
+    { title: 'DATA-01 - "Sauce Labs Onesie"', file: 'product-data-propagation.spec.ts', project: 'chromium', durationMs: 6900 },
+  ],
+  failureCategories: { 'Locator no encontrado': 1, 'Assertion': 1 },
+  scenarioCoverage: { happy: 8, edge: 4, otro: 2 },
+  trend: [
+    { date: '2026-08-11T10:00:00Z', passRate: 0.93, flakyRate: 0.07, testCount: 14 },
+    { date: '2026-08-13T10:00:00Z', passRate: 0.86, flakyRate: 0.14, testCount: 14 },
+    { date: '2026-08-15T10:00:00Z', passRate: 0.79, flakyRate: 0.07, testCount: 14 },
+    { date: '2026-08-17T10:00:00Z', passRate: 0.93, flakyRate: 0.07, testCount: 14 },
+    { date: '2026-08-19T10:00:00Z', passRate: 0.79, flakyRate: 0.07, testCount: 14 },
+  ],
+  tests: [
+    { key: 'k1', title: 'TC-01 - a standard user can complete a purchase end to end', file: 'happy-path-purchase.spec.ts', status: 'passed', flaky: false, durationMs: 7600, retries: 0, errorMessage: null, errorCategory: null, stabilityPercent: 100, runsObserved: 5, chronicallyUnstable: false },
+    { key: 'k2', title: 'TC-02 - a locked-out user is blocked with an explicit error', file: 'login-invalid-credentials.spec.ts', status: 'passed', flaky: false, durationMs: 4200, retries: 0, errorMessage: null, errorCategory: null, stabilityPercent: 100, runsObserved: 5, chronicallyUnstable: false },
+    { key: 'k3', title: 'checkout-payment-widget — carga el iframe de pago externo', file: 'checkout-payment-widget.spec.ts', status: 'failed', flaky: false, durationMs: 15200, retries: 0, errorMessage: "TimeoutError: locator.click: Timeout 10000ms exceeded.\nwaiting for getByRole('button', { name: 'Pay now' })", errorCategory: 'Locator no encontrado', stabilityPercent: 40, runsObserved: 5, chronicallyUnstable: true },
+    { key: 'k4', title: 'cart-totals — recalcula el total al cambiar cantidades', file: 'cart-totals.spec.ts', status: 'passed', flaky: true, durationMs: 6100, retries: 1, errorMessage: 'Error: expect(received).toBe(expected)\n\nExpected: "$32.39"\nReceived: "$0.00"', errorCategory: 'Assertion', stabilityPercent: 60, runsObserved: 5, chronicallyUnstable: true },
+    { key: 'k5', title: 'DATA-01 - "Sauce Labs Fleece Jacket"', file: 'product-data-propagation.spec.ts', status: 'passed', flaky: false, durationMs: 9100, retries: 0, errorMessage: null, errorCategory: null, stabilityPercent: 100, runsObserved: 5, chronicallyUnstable: false },
+    { key: 'k6', title: 'PDF-01 - el Order Receipt contiene los mismos datos que se vieron en el checkout', file: 'order-pdf-integrity.spec.ts', status: 'passed', flaky: false, durationMs: 15200, retries: 0, errorMessage: null, errorCategory: null, stabilityPercent: 100, runsObserved: 5, chronicallyUnstable: false },
+    { key: 'k7', title: 'onboarding-tour — no bloquea el catálogo si el usuario la cierra tarde', file: 'onboarding-tour.spec.ts', status: 'failed', flaky: false, durationMs: 11300, retries: 0, errorMessage: 'net::ERR_CONNECTION_RESET at https://www.saucedemo.com/inventory.html', errorCategory: 'Navegación/red', stabilityPercent: 80, runsObserved: 5, chronicallyUnstable: false },
+  ],
+};
+const SAMPLE_HISTORY = SAMPLE_METRICS.trend.map((t) => ({ ...t }));
+
+// =================================================================================================
+// Carga de datos reales, con fallback a los de ejemplo
+// =================================================================================================
+async function loadJSON(path) {
+  const res = await fetch(path, { cache: 'no-store' });
+  if (!res.ok) throw new Error(`${path}: HTTP ${res.status}`);
+  return res.json();
+}
+
+async function loadData() {
+  try {
+    const [metrics, history] = await Promise.all([loadJSON('./metrics.json'), loadJSON('./metrics-history.json')]);
+    return { metrics, history, isSample: false };
+  } catch (err) {
+    console.warn('No se pudieron leer los JSON reales, usando datos de ejemplo:', err.message);
+    return { metrics: SAMPLE_METRICS, history: SAMPLE_HISTORY, isSample: true };
+  }
+}
+
+// =================================================================================================
+// Helpers de formato
+// =================================================================================================
+const fmtPct = (x) => `${(x * 100).toFixed(1)}%`;
+const fmtSec = (ms) => `${(ms / 1000).toFixed(1)}s`;
+const fmtDate = (iso) => {
+  const d = new Date(iso);
+  return d.toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+};
+const escapeHtml = (s) => (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const CATEGORY_COLORS = {
+  'Timeout/espera': '#fbbf24',
+  'Assertion': '#f87171',
+  'Locator no encontrado': '#fb923c',
+  'Navegación/red': '#c084fc',
+  'Otro': '#8b93a6',
+};
+
+// =================================================================================================
+// Render
+// =================================================================================================
+function renderKPIs(summary) {
+  const kpis = [
+    { label: 'Pass rate', value: fmtPct(summary.passRate), cls: 'pass', sub: `${summary.passed}/${summary.testCount} tests` },
+    { label: 'Flaky rate', value: fmtPct(summary.flakyRate), cls: summary.flaky > 0 ? 'flaky' : 'pass', sub: `${summary.flaky} test(s) flaky` },
+    { label: 'Duración total', value: fmtSec(summary.totalDurationMs), cls: '', sub: `promedio ${fmtSec(summary.avgDurationMs)}` },
+    { label: 'p95 duración', value: fmtSec(summary.p95DurationMs), cls: '', sub: '95% de los tests corren más rápido que esto' },
+    { label: 'Retries totales', value: String(summary.totalRetries), cls: summary.totalRetries > 0 ? 'flaky' : 'pass', sub: 'reintentos consumidos en CI' },
+  ];
+  document.getElementById('kpi-row').innerHTML = kpis
+    .map(
+      (k) => `<div class="kpi"><div class="label">${k.label}</div><div class="value mono ${k.cls}">${k.value}</div><div class="sub">${k.sub}</div></div>`,
+    )
+    .join('');
+}
+
+function renderTrendChart(history) {
+  const labels = history.map((h) => fmtDate(h.date));
+  new Chart(document.getElementById('trendChart'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [
+        {
+          label: 'Pass rate',
+          data: history.map((h) => h.passRate * 100),
+          borderColor: '#34d399',
+          backgroundColor: 'rgba(52,211,153,0.12)',
+          fill: true,
+          tension: 0.25,
+          pointRadius: 3,
+        },
+        {
+          label: 'Flaky rate',
+          data: history.map((h) => h.flakyRate * 100),
+          borderColor: '#fbbf24',
+          backgroundColor: 'rgba(251,191,36,0.08)',
+          fill: true,
+          tension: 0.25,
+          pointRadius: 3,
+        },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      scales: {
+        y: { min: 0, max: 100, ticks: { color: '#8b93a6', callback: (v) => v + '%' }, grid: { color: '#232938' } },
+        x: { ticks: { color: '#8b93a6' }, grid: { display: false } },
+      },
+      plugins: { legend: { labels: { color: '#e6e9f0' } } },
+    },
+  });
+}
+
+function renderDurationChart(tests) {
+  const sorted = [...tests].sort((a, b) => b.durationMs - a.durationMs);
+  const top5Keys = new Set(sorted.slice(0, 5).map((t) => t.key));
+  const shortTitle = (t) => (t.length > 46 ? t.slice(0, 44) + '…' : t);
+
+  new Chart(document.getElementById('durationChart'), {
+    type: 'bar',
+    data: {
+      labels: sorted.map((t) => shortTitle(t.title)),
+      datasets: [
+        {
+          label: 'Duración',
+          data: sorted.map((t) => t.durationMs / 1000),
+          backgroundColor: sorted.map((t) => (top5Keys.has(t.key) ? '#f87171' : '#3fd0c9')),
+          borderRadius: 4,
+        },
+      ],
+    },
+    options: {
+      indexAxis: 'y',
+      maintainAspectRatio: false,
+      scales: {
+        x: { ticks: { color: '#8b93a6', callback: (v) => v + 's' }, grid: { color: '#232938' } },
+        y: { ticks: { color: '#8b93a6', font: { size: 11 } }, grid: { display: false } },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.x.toFixed(1)}s${top5Keys.has(sorted[ctx.dataIndex].key) ? '  ⚠ top 5 más lento' : ''}` } },
+      },
+    },
+  });
+}
+
+function renderCategoryChart(failureCategories) {
+  const entries = Object.entries(failureCategories);
+  if (entries.length === 0) {
+    document.getElementById('categoryBox').innerHTML = '<div class="empty-state">✅ Sin fallos que categorizar en esta corrida.</div>';
+    return;
+  }
+  new Chart(document.getElementById('categoryChart'), {
+    type: 'doughnut',
+    data: {
+      labels: entries.map(([k]) => k),
+      datasets: [{ data: entries.map(([, v]) => v), backgroundColor: entries.map(([k]) => CATEGORY_COLORS[k] ?? '#8b93a6') }],
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: { legend: { position: 'bottom', labels: { color: '#e6e9f0', boxWidth: 12, padding: 12 } } },
+    },
+  });
+}
+
+function renderFlakySection(tests) {
+  const flagged = tests.filter((t) => t.flaky || t.chronicallyUnstable);
+  const el = document.getElementById('flaky-list');
+  if (flagged.length === 0) {
+    el.innerHTML = '<div class="empty-state" style="height:auto;padding:12px 0;">✅ Ningún test flaky ni crónicamente inestable — la suite está limpia.</div>';
+    return;
+  }
+  el.innerHTML = flagged
+    .map((t) => {
+      const reasons = [];
+      if (t.flaky) reasons.push('flaky en esta corrida');
+      if (t.chronicallyUnstable) reasons.push(`estabilidad histórica ${t.stabilityPercent}% (${t.runsObserved} corridas observadas)`);
+      return `<div class="flaky-item">
+        <div>
+          <div class="title">${escapeHtml(t.title)}</div>
+          <div class="why">${escapeHtml(t.file)} — ${reasons.join(' · ')}</div>
+        </div>
+        <div>
+          ${t.flaky ? '<span class="pill flaky">FLAKY</span>' : ''}
+          ${t.chronicallyUnstable ? '<span class="pill unstable">INESTABLE</span>' : ''}
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+
+let currentTests = [];
+let sortState = { key: 'durationMs', dir: 'desc' };
+
+function stabilityColor(pct) {
+  if (pct === null || pct === undefined) return '#8b93a6';
+  if (pct >= 90) return '#34d399';
+  if (pct >= 60) return '#fbbf24';
+  return '#f87171';
+}
+
+function renderTable() {
+  const sorted = [...currentTests].sort((a, b) => {
+    let av = a[sortState.key];
+    let bv = b[sortState.key];
+    if (av === null || av === undefined) av = sortState.dir === 'asc' ? Infinity : -Infinity;
+    if (bv === null || bv === undefined) bv = sortState.dir === 'asc' ? Infinity : -Infinity;
+    if (typeof av === 'string') return sortState.dir === 'asc' ? av.localeCompare(bv) : bv.localeCompare(av);
+    return sortState.dir === 'asc' ? av - bv : bv - av;
+  });
+
+  document.getElementById('tests-tbody').innerHTML = sorted
+    .map((t) => {
+      const stability = t.stabilityPercent === null ? '—' : `${t.stabilityPercent}%`;
+      const stabilityWidth = t.stabilityPercent ?? 0;
+      return `<tr>
+        <td class="title">${escapeHtml(t.title)}<span class="file">${escapeHtml(t.file)}</span></td>
+        <td>
+          <span class="status-badge ${t.status}">${t.status.toUpperCase()}</span>
+          ${t.flaky ? '<span class="status-badge flaky-tag">FLAKY</span>' : ''}
+        </td>
+        <td class="mono">${fmtSec(t.durationMs)}</td>
+        <td class="mono">${t.retries}</td>
+        <td class="mono">
+          <span class="stability-bar"><span style="width:${stabilityWidth}%;background:${stabilityColor(t.stabilityPercent)}"></span></span>${stability}
+        </td>
+        <td>${t.errorCategory ? escapeHtml(t.errorCategory) : '—'}</td>
+      </tr>`;
+    })
+    .join('');
+
+  document.querySelectorAll('thead th[data-sort]').forEach((th) => {
+    const arrow = th.querySelector('.arrow');
+    arrow.textContent = th.dataset.sort === sortState.key ? (sortState.dir === 'asc' ? '↑' : '↓') : '';
+  });
+}
+
+function setupTableSorting() {
+  document.querySelectorAll('thead th[data-sort]').forEach((th) => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      sortState = key === sortState.key ? { key, dir: sortState.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'desc' };
+      renderTable();
+    });
+  });
+}
+
+// =================================================================================================
+// Boot
+// =================================================================================================
+(async function main() {
+  const { metrics, history, isSample } = await loadData();
+
+  if (isSample) document.getElementById('sample-banner').style.display = 'block';
+  document.getElementById('generated-at').textContent = `Generado ${fmtDate(metrics.generatedAt)}${isSample ? ' (datos de ejemplo)' : ''}`;
+  document.getElementById('footer-count').textContent = `${metrics.tests.length} tests · ${history.length} corridas en el histórico`;
+
+  currentTests = metrics.tests;
+
+  renderKPIs(metrics.summary);
+  renderTrendChart(history);
+  renderDurationChart(metrics.tests);
+  renderCategoryChart(metrics.failureCategories);
+  renderFlakySection(metrics.tests);
+  setupTableSorting();
+  renderTable();
+})();
+</script>
+</body>
+</html>

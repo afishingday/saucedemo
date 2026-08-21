@@ -1,0 +1,114 @@
+name: Playwright Tests
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  workflow_dispatch:
+
+# pages:write + id-token:write son requeridos por actions/deploy-pages para publicar sin
+# necesitar un token/secret propio (usa el OIDC de la corrida).
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Evita que dos corridas superpuestas pisen el deploy de Pages una a la otra.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  test:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # npm ci si hay lockfile (caso normal de este repo); npm install como fallback
+        # portable si algún día no lo hay — no asume que package-lock.json siempre existe.
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run Playwright tests
+        # Sin continue-on-error a propósito: si esto falla, el job "test" falla, y el job
+        # "deploy" (que depende de este vía needs) queda gateado — nunca se publica un
+        # sitio con tests en rojo. El trade-off, real y aceptado: un run fallido no
+        # actualiza el reporte/dashboard publicados (quedan mostrando la última corrida
+        # verde) — ver README, sección "Métricas de la suite".
+        run: npm test
+
+      - name: Fetch previous metrics history (best effort)
+        if: github.event_name != 'pull_request'
+        # metrics-history.json no se commitea (ver README) — vive en el propio sitio
+        # publicado. Se trae la versión ya deployada antes de generar la de esta corrida,
+        # así el histórico se acumula corrida a corrida en vez de resetearse en cada job
+        # (que arranca desde un checkout limpio). Si todavía no hay nada publicado (primer
+        # deploy), el curl falla y arranca desde un histórico vacío, sin romper el job.
+        run: |
+          curl -fsSL "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/metrics-history.json" \
+            -o metrics-history.json || echo '[]' > metrics-history.json
+
+      - name: Generate metrics
+        if: github.event_name != 'pull_request'
+        run: npm run metrics
+
+      - name: Assemble published site
+        if: github.event_name != 'pull_request'
+        # El index.html vive en scripts/pages-index.html (archivo real, no un heredoc
+        # dentro del YAML — un heredoc con el delimitador de cierre indentado, como exige
+        # el formato del `run: |`, nunca cierra en bash sin `<<-` + tabs). sed solo
+        # reemplaza los dos placeholders dinámicos; nada acá hardcodea el nombre del repo.
+        run: |
+          mkdir -p _site
+          cp -r playwright-report _site/report
+          cp metrics-dashboard.html metrics.json metrics-history.json _site/
+          sed \
+            -e "s|__COMMIT_SHA__|${{ github.sha }}|g" \
+            -e "s|__REPO_URL__|https://github.com/${{ github.repository }}|g" \
+            scripts/pages-index.html > _site/index.html
+
+      - uses: actions/upload-pages-artifact@v3
+        if: github.event_name != 'pull_request'
+        with:
+          path: _site
+
+      - uses: actions/upload-artifact@v4
+        # Sigue subiendo el reporte crudo como artifact descargable en CUALQUIER evento
+        # (incluidos PRs y corridas fallidas) — es independiente del deploy a Pages,
+        # que sí está gateado más abajo.
+        if: ${{ !cancelled() }}
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 30
+
+  deploy:
+    # Gate real: "needs: test" ya alcanza para que esto no corra si test falló (sin
+    # continue-on-error, un step fallido falla el job, y un job fallido bloquea a los que
+    # dependen de él). El `if` de acá es la segunda mitad de la regla: nunca deployar
+    # desde un pull_request, sea cual sea el resultado de los tests.
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
