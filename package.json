@@ -1,0 +1,28 @@
+{
+  "name": "saucedemo-e2e",
+  "version": "1.0.0",
+  "description": "Playwright + TypeScript POM automation for the SauceDemo purchase flow (QA Engineer technical exercise).",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "playwright test --grep-invert @demo-failure",
+    "test:headed": "playwright test --grep-invert @demo-failure --headed",
+    "test:ui": "playwright test --ui",
+    "test:failure-demo": "playwright test --grep @demo-failure",
+    "report": "playwright show-report",
+    "metrics": "node scripts/generate-metrics.mjs",
+    "metrics:serve": "node scripts/serve-dashboard.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^26.2.0",
+    "pdf-parse": "^2.4.5",
+    "typescript": "^7.0.2"
+  }
+}
