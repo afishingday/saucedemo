@@ -29,12 +29,14 @@ export default defineConfig({
     /* Required by the exercise: keep trace + screenshot only for failed tests. */
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    // Video is a screencast of the actual viewport, not an upscale of it — Playwright's own
-    // default caps recorded video at ~800x800 unless an explicit size is given, so pairing a
-    // 1920x1080 viewport with the bare 'retain-on-failure' string silently records a
-    // downscaled, blurry video despite the viewport being real HD. Explicit size fixes that
-    // (same bug already caught and documented in inspectoria/e2e/playwright.config.ts).
-    video: { mode: 'retain-on-failure', size: { width: 1920, height: 1080 } },
+    // Video recorded for every test — pass or fail — so passing runs also have on-screen
+    // evidence, not just failures. Video is a screencast of the actual viewport, not an
+    // upscale of it — Playwright's own default caps recorded video at ~800x800 unless an
+    // explicit size is given, so pairing a 1920x1080 viewport with the bare 'on' string
+    // silently records a downscaled, blurry video despite the viewport being real HD.
+    // Explicit size fixes that (same bug already caught and documented in
+    // inspectoria/e2e/playwright.config.ts).
+    video: { mode: 'on', size: { width: 1920, height: 1080 } },
 
     actionTimeout: 10_000,
   },

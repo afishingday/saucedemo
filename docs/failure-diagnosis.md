@@ -19,8 +19,9 @@ diseñado para fallar siempre, así que no puede convivir con los 3 casos reales
 principal.
 
 Con `trace: 'retain-on-failure'`, `screenshot: 'only-on-failure'` y
-`video: { mode: 'retain-on-failure', size: { width: 1920, height: 1080 } }` ya configurados en
-[`playwright.config.ts`](../playwright.config.ts), Playwright retiene automáticamente los tres.
+`video: { mode: 'on', size: { width: 1920, height: 1080 } }` ya configurados en
+[`playwright.config.ts`](../playwright.config.ts), Playwright retiene automáticamente los tres
+(el video, además, se graba en toda corrida — pass y fail — no solo en el fallo).
 
 ## El panel de evidencia
 

@@ -229,7 +229,7 @@ esperado.
 
 1. **Generación de casos de prueba asistida por IA** → [`docs/test-case-matrix.md`](docs/test-case-matrix.md) (1 happy path + 2 casos límite/error) y el detalle de cómo se generaron en [`PROMPTS.md`](PROMPTS.md).
 2. **Automatización con Playwright + POM** → `pages/`, `fixtures/pages.fixture.ts` + `fixtures/purchaseFlow.ts` y `tests/`. Selectores priorizando `getByRole` / `getByPlaceholder` (accesibles) sobre CSS frágil; se documenta en el código la única excepción (`data-test`) donde SauceDemo no expone un rol/nombre accesible propio.
-3. **Diagnóstico de fallos y reporteo con IA** → `playwright.config.ts` tiene `trace: 'retain-on-failure'`, `screenshot: 'only-on-failure'` y video HD real (`1920×1080`, no upscalado) retenido en fallo. La demo reproducible (`tests/diagnostics/forced-failure-demo.spec.ts`), su evidencia (con panel de diagnóstico en español, ver `utils/evidenceReveal.ts`) y el análisis de causa raíz están en [`docs/failure-diagnosis.md`](docs/failure-diagnosis.md).
+3. **Diagnóstico de fallos y reporteo con IA** → `playwright.config.ts` tiene `trace: 'retain-on-failure'`, `screenshot: 'only-on-failure'` y video HD real (`1920×1080`, no upscalado) grabado en **todas** las corridas (`video: 'on'`), tanto pass como fail. La demo reproducible (`tests/diagnostics/forced-failure-demo.spec.ts`), su evidencia (con panel de diagnóstico en español, ver `utils/evidenceReveal.ts`) y el análisis de causa raíz están en [`docs/failure-diagnosis.md`](docs/failure-diagnosis.md).
 
 ## Decisiones de diseño
 
